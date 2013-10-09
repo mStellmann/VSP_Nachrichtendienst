@@ -1,0 +1,64 @@
+title Client -> Server Communication
+loop until timer ends
+
+loop 5 times
+
+Editor->Dispatcher: {getmsgid, self()}
+
+Dispatcher->MessagenumberMgmt: {getmsgid, PIDClient, self()}
+
+MessagenumberMgmt-->Dispatcher: {nid, Number, PIDClient}
+
+Dispatcher-->Editor: {nid, Number}
+
+Editor->Editor: wait()
+
+Editor->Editor: safeMessagenumber()
+
+Editor->Dispatcher: {dropmessage, {Message, Number}}
+
+Dispatcher->QueueMgmt: {dropmessage, {Message, Number}}
+
+QueueMgmt->QueueMgmt: *QueueAlgorithm
+   
+end
+
+Editor->Dispatcher: {getmsgid, self()}
+
+Dispatcher->MessagenumberMgmt: {getmsgid, PIDClient, self()}
+
+MessagenumberMgmt-->Dispatcher: {nid, Number, PIDClient}
+
+Dispatcher-->Editor: {nid, Number}
+
+Editor->Editor: calculateNewWaitingtime()
+
+Editor->Editor: logDroppedMessage()
+
+Editor->Reader: getMessages()
+
+loop until Terminated == true
+
+Reader->Dispatcher: {getmessages, self()}
+
+Dispatcher->ClientMgmt: {checkclient, PIDClient, self()}
+
+ClientMgmt->ClientMgmt: checkClient()
+
+ClientMgmt->Dispatcher: {checkedclient, PIDClient, Clientmessagenumber}
+
+Dispatcher->QueueMgmt: {getmessages, PIDClient, self(), Clientmessagenumber}
+
+QueueMgmt->Dispatcher: {reply, PIDClient, Number, Message, Terminated}
+
+Dispatcher->Reader: {reply, Number, Message, Terminated}
+
+Reader->Reader: checkMessagenumber()
+
+Reader->Reader: logMessage()
+
+end
+
+Reader->Editor: sendMessages()
+
+end
