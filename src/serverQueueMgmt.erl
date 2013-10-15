@@ -11,6 +11,10 @@ start(DLQLimit, ClientLifetime) ->
   erlang:spawn(fun() -> queueMgmt(DLQLimit, [], [], [], ClientLifetime) end)
 .
 
+%% TODO -> ALLE SCHEISS IF ANWEISUNGEN IN CASE
+%% TODO -> clientMgmt_newMessageNumberOfClient() -> ändern, list abfragen falsch mit any und elem  => ListComprehension
+%% TODO -> Comments, Comments, Comments, ..... , Comments
+
 %% receiving loop for the QueueMgmt
 queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime) ->
   receive
@@ -37,70 +41,74 @@ dropMessageInHBQ(MessageTuple, HBQ, DLQ, ClientList, ClientLifetime, DLQLimit) -
   NewHBQ = werkzeug:pushSL(HBQ, {MsgNr, lists:concat([Message, " S in HBQ at " + werkzeug:timeMilliSecond()])}),
   if
     werkzeug:lengthSL(NewHBQ) > DLQLimit / 2 -> pushMessagesInDLQ(NewHBQ, DLQ, ClientList, ClientLifetime, DLQLimit, true);
-    _ -> queueMgmt(DLQLimit, NewHBQ, DLQ, ClientList, ClientLifetime)
+    werkzeug:lengthSL(NewHBQ) =< DLQLimit / 2 -> queueMgmt(DLQLimit, NewHBQ, DLQ, ClientList, ClientLifetime)
   end
 .
 
 pushMessagesInDLQ(HBQ, DLQ, ClientList, ClientLifetime, DLQLimit, NewPushingFlac) ->
   if
-    werkzeug:notemptySL(HBQ) == false -> queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime)
+    not werkzeug:notemptySL(HBQ) -> queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime)
   end,
 
   if
   %% missing messages -> failuremessage will be created and pushed in DLQ
-    werkzeug:maxNrSL(DLQ) + 2 =< werkzeug:minNrSL(HBQ) and NewPushingFlac == true ->
+    werkzeug:maxNrSL(DLQ) + 2 =< werkzeug:minNrSL(HBQ) and NewPushingFlac ->
       failMessage = lists:concat(["*** missing messages from " + werkzeug:maxNrSL(DLQ) + 1, " to ", werkzeug:minNrSL(HBQ) - 1, " at ", werkzeug:timeMilliSecond(), " ***"]),
       if
-        isDLQFull(DLQ, DLQLimit) == true ->
+        isDLQFull(DLQ, DLQLimit) ->
           if
-            isDLQPushPossible(DLQ, ClientList) == false -> queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime);
-            _ ->
+            not isDLQPushPossible(DLQ, ClientList) -> queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime);
+            isDLQPushPossible(DLQ, ClientList) ->
               NewDLQ = werkzeug:popSL(DLQ),
               NewPushedDLQ = werkzeug:pushSL(NewDLQ, {werkzeug:minNrSL(HBQ) - 1, failMessage}),
               pushMessagesInDLQ(HBQ, NewPushedDLQ, ClientList, ClientLifetime, DLQLimit, false)
           end;
-        _ ->
+        not isDLQFull(DLQ, DLQLimit) ->
           NewDLQ = werkzeug:pushSL(DLQ, {werkzeug:minNrSL(HBQ) - 1, failMessage}),
           pushMessagesInDLQ(HBQ, NewDLQ, ClientList, ClientLifetime, DLQLimit, false)
       end;
 
     %% next missing messages in HBQ, stop pushing
-    werkzeug:maxNrSL(DLQ) + 2 =< werkzeug:minNrSL(HBQ) and NewPushingFlac == false ->
+    werkzeug:maxNrSL(DLQ) + 2 =< werkzeug:minNrSL(HBQ) and not NewPushingFlac ->
       queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime);
 
     %% no missing messages
-    _ ->
+    werkzeug:maxNrSL(DLQ) + 1 == werkzeug:minNrSL(HBQ) ->
       if
-        isDLQFull(DLQ, DLQLimit) == true ->
+        isDLQFull(DLQ, DLQLimit) ->
           if
-            isDLQPushPossible(DLQ, ClientList) == false -> queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime);
-            _ ->
+            not isDLQPushPossible(DLQ, ClientList) ->
+              queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime);
+            isDLQPushPossible(DLQ, ClientList) ->
               NewDLQ = werkzeug:popSL(DLQ),
               {MsgNumber, Message} = werkzeug:findSL(HBQ, werkzeug:minNrSL(HBQ)),
               NewHBQ = werkzeug:popSL(HBQ),
               NewPushedDLQ = werkzeug:pushSL(NewDLQ, {MsgNumber, lists:concat([Message, " S in DLQ at " + werkzeug:timeMilliSecond()])}),
               pushMessagesInDLQ(NewHBQ, NewPushedDLQ, ClientList, ClientLifetime, DLQLimit, false)
           end;
-        _ ->
+        not isDLQFull(DLQ, DLQLimit) ->
           {MsgNumber, Message} = werkzeug:findSL(HBQ, werkzeug:minNrSL(HBQ)),
           NewHBQ = werkzeug:popSL(HBQ),
           NewDLQ = werkzeug:pushSL(DLQ, {MsgNumber, lists:concat([Message, " S in DLQ at " + werkzeug:timeMilliSecond()])}),
-          pushMessagesInDLQ(HBQ, NewDLQ, ClientList, ClientLifetime, DLQLimit, false)
+          pushMessagesInDLQ(NewHBQ, NewDLQ, ClientList, ClientLifetime, DLQLimit, false)
       end
   end
 .
 
 isDLQPushPossible(DLQ, ClientList) ->
   MinClientMsgNumber = lists:min([MessageNumber || {_, MessageNumber, _} <- ClientList]),
-  if MinClientMsgNumber + 1 == werkzeug:minNrSL(DLQ) -> false;
-    _ -> true
+  MinDLQNumber = werkzeug:minNrSL(DLQ),
+  if
+    MinClientMsgNumber + 1 == MinDLQNumber -> false;
+    MinClientMsgNumber + 1 /= MinDLQNumber -> true
   end
 .
 
 isDLQFull(DLQ, DLQLimit) ->
+  DLQLength = werkzeug:lengthSL(DLQ),
   if
-    werkzeug:lengthSL(DLQ) == DLQLimit -> true;
-    _ -> false
+    DLQLength == DLQLimit -> true;
+    DLQLength /= DLQLimit -> false
   end
 .
 %% --------- ending the algo ----------
@@ -115,11 +123,12 @@ sendMessageToClient(ClientPID, LastSendMessagenumber, DLQ) ->
 
   %% next message found, sending to client
     {SNr, Elem} ->
+      MaxDLQNumber = werkzeug:maxNrSL(DLQ),
       if
-        SNr == werkzeug:maxNrSL(DLQ) ->
+        SNr == MaxDLQNumber ->
           ClientPID ! {reply, SNr, lists:concat([Elem, " S Out: ", werkzeug:timeMilliSecond()]), true},
           SNr;
-        _ ->
+        SNr /= MaxDLQNumber ->
           ClientPID ! {reply, SNr, lists:concat([Elem, " S Out: ", werkzeug:timeMilliSecond()]), false},
           SNr
       end
@@ -128,11 +137,12 @@ sendMessageToClient(ClientPID, LastSendMessagenumber, DLQ) ->
 
 %% getting the last messagenumber which was send to the client
 clientMgmt_lastMessageNumberSend(ClientPID, ClientList) ->
-  case lists:any(fun(Elem) -> Elem == {ClientPID, _, _} end, ClientList) of
-    true ->
-      {_, LastSendMessage, _} = Elem,
-      LastSendMessage;
-    false -> 0
+  ClientPIDTuple = [{Elem, LastMessageNumberSend} || {Elem, LastMessageNumberSend, _} <- ClientList, Elem == ClientPID],
+  if
+    ClientPIDTuple == [] -> 0;
+    ClientPIDTuple /= [] ->
+      {_, MessageNumber} = ClientPIDTuple,
+      MessageNumber
   end
 .
 
