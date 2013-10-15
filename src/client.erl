@@ -39,7 +39,7 @@ sendMessages(ClientID, ServerPID, Sendinterval, NumberOfSendMsg, OwnMessageNumbe
   receive
     endOfLifetime -> exitClient(ClientID);
 
-    {nnr, Number} ->
+    {nid, Number} ->
 %% After sending 5 Messages, forget to send a Message and switch to Readermode
       case NumberOfSendMsg of
         5 ->
@@ -66,14 +66,14 @@ getMessages(ClientID, ServerPID, OwnMessageNumbers, SendInterval) ->
   receive
     endOfLifetime -> exitClient(ClientID);
 
-    {reply, NNr, Message, Termi} ->
+    {reply, NNr, Message, Terminated} ->
 %% checking if received Message is from our own editor
       case lists:any(fun(Elem) -> Elem == NNr end, OwnMessageNumbers) of
         true -> logMessage(ClientID, lists:concat(["Received a Message of my own: ",Message , "at ",werkzeug:timeMilliSecond(),"~n"]));
         false -> logMessage(ClientID, lists:concat(["Received a Message: ",Message , "at ",werkzeug:timeMilliSecond(),"~n"]))
       end,
-      case Termi of
-%% switching back to editormode if Termi is true with a new calculated SendInterval
+      case Terminated of
+%% switching back to editormode if Terminated is true with a new calculated SendInterval
         true -> sendMessages(ClientID, ServerPID, calculateNewWaitingtime(SendInterval), 0, OwnMessageNumbers);
 %% more messages to receive
         false -> getMessages(ClientID, ServerPID, OwnMessageNumbers, SendInterval)
