@@ -1,6 +1,6 @@
 %% Copyright
 -module(client).
--author("Matthias Stellmann").
+-author("Matthias Stellmann and Grzegorz Markiewicz").
 
 %% API
 -export([startClients/1]).
@@ -25,7 +25,7 @@ startClients(ServerNode) ->
 %% returns a List of the spawend PID for each Client
 createClients(ClientIDList, ServerPID, Sendinterval, Lifetime) ->
   lists:map(fun(ClientID) ->
-    ClientPID = spawn(fun() -> editor(ClientID, ServerPID, Sendinterval, 0, []) end),
+    ClientPID = spawn(fun() -> sendMessages(ClientID, ServerPID, Sendinterval, 0, []) end),
     io:format("INFO: Client with NR: ~p PID: ~p startet at ~p~n", [ClientID, ClientPID, werkzeug:timeMilliSecond()]),
     timer:send_after(Lifetime, ClientPID, endOfLifetime),
     ClientPID end,
@@ -34,7 +34,7 @@ createClients(ClientIDList, ServerPID, Sendinterval, Lifetime) ->
 .
 
 %% editorMode - asking the Server for new MessageNumbers and sending Messages to the Server
-editor(ClientID, ServerPID, Sendinterval, NumberOfSendMsg, OwnMessageNumbers) ->
+sendMessages(ClientID, ServerPID, Sendinterval, NumberOfSendMsg, OwnMessageNumbers) ->
   ServerPID ! {getmsgid, self()},
   receive
     endOfLifetime -> exitClient(ClientID);
@@ -43,25 +43,25 @@ editor(ClientID, ServerPID, Sendinterval, NumberOfSendMsg, OwnMessageNumbers) ->
 %% After sending 5 Messages, forget to send a Message and switch to Readermode
       case NumberOfSendMsg of
         5 ->
-          logToFile(ClientID, lists:concat(["forgot to send MessageNr: ",Number," at",werkzeug:timeMilliSecond() ," ~n"])),
-          reader(ClientID, ServerPID, OwnMessageNumbers, Sendinterval);
+          logMessage(ClientID, lists:concat(["forgot to send MessageNr: ",Number," at",werkzeug:timeMilliSecond() ," ~n"])),
+          getMessages(ClientID, ServerPID, OwnMessageNumbers, Sendinterval);
         _ ->
 %% lists:concat([Number, ".Message: ", getHost()," ", ClientNr," G2/T13", " Send: ", werkzeug:timeMilliSecond()])
           Message = lists:concat([Number, ".-Message: C out - ", werkzeug:timeMilliSecond(), "(", getHostname(), ") ;"]),
           ServerPID ! {dropmessage, {Message, Number}},
-          logToFile(ClientID, lists:concat(["send Message: ", Message,"~n"])),
+          logMessage(ClientID, lists:concat(["send Message: ", Message,"~n"])),
           timer:sleep(Sendinterval),
-          editor(ClientID, ServerPID, Sendinterval, NumberOfSendMsg + 1, lists:append(OwnMessageNumbers, [Number]))
+          sendMessages(ClientID, ServerPID, Sendinterval, NumberOfSendMsg + 1, lists:append(OwnMessageNumbers, [Number]))
       end;
 
     Any ->
-      logToFile(ClientID, lists:concat(["received anything not understandable: ", Any, "~n"])),
-      editor(ClientID, ServerPID, Sendinterval, NumberOfSendMsg, OwnMessageNumbers)
+      logMessage(ClientID, lists:concat(["received anything not understandable: ", Any, "~n"])),
+      sendMessages(ClientID, ServerPID, Sendinterval, NumberOfSendMsg, OwnMessageNumbers)
   end
 .
 
 %% readerMode - receiving Messages from Server and saving them into the .log-File
-reader(ClientID, ServerPID, OwnMessageNumbers, SendInterval) ->
+getMessages(ClientID, ServerPID, OwnMessageNumbers, SendInterval) ->
   ServerPID ! {getmessages, self()},
   receive
     endOfLifetime -> exitClient(ClientID);
@@ -69,19 +69,19 @@ reader(ClientID, ServerPID, OwnMessageNumbers, SendInterval) ->
     {reply, NNr, Message, Termi} ->
 %% checking if received Message is from our own editor
       case lists:any(fun(Elem) -> Elem == NNr end, OwnMessageNumbers) of
-        true -> logToFile(ClientID, lists:concat(["Received a Message of my own: ",Message , "at ",werkzeug:timeMilliSecond(),"~n"]));
-        false -> logToFile(ClientID, lists:concat(["Received a Message: ",Message , "at ",werkzeug:timeMilliSecond(),"~n"]))
+        true -> logMessage(ClientID, lists:concat(["Received a Message of my own: ",Message , "at ",werkzeug:timeMilliSecond(),"~n"]));
+        false -> logMessage(ClientID, lists:concat(["Received a Message: ",Message , "at ",werkzeug:timeMilliSecond(),"~n"]))
       end,
       case Termi of
 %% switching back to editormode if Termi is true with a new calculated SendInterval
-        true -> editor(ClientID, ServerPID, calculateNewTimeInterval(SendInterval), 0, OwnMessageNumbers);
+        true -> sendMessages(ClientID, ServerPID, calculateNewWaitingtime(SendInterval), 0, OwnMessageNumbers);
 %% more messages to receive
-        false -> reader(ClientID, ServerPID, OwnMessageNumbers, SendInterval)
+        false -> getMessages(ClientID, ServerPID, OwnMessageNumbers, SendInterval)
       end;
 
     Any ->
-      logToFile(ClientID, lists:concat(["received anything not understandable: ", Any, "~n"])),
-      reader(ClientID, ServerPID, OwnMessageNumbers, SendInterval)
+      logMessage(ClientID, lists:concat(["received anything not understandable: ", Any, "~n"])),
+      getMessages(ClientID, ServerPID, OwnMessageNumbers, SendInterval)
   end
 .
 
@@ -93,7 +93,7 @@ exitClient(ClientID) ->
 
 %% Generates a new Timeinterval
 %% generated interval is always 50 percent '<' or '>' as the 'CurrentInterval' with a minimum of +-1
-calculateNewTimeInterval(CurrentInterval) ->
+calculateNewWaitingtime(CurrentInterval) ->
   UpOrDown = random:uniform(2),
   if CurrentInterval >= 2 ->
     if UpOrDown == 1 -> CurrentInterval * 0.5;
@@ -124,7 +124,7 @@ getHostname() ->
 .
 
 %% simplifies the Logging
-logToFile(ClientNr, Message) ->
+logMessage(ClientNr, Message) ->
   Filename = lists:concat(["client_", ClientNr, "@", getHostname(), ".log"]),
   werkzeug:logging(Filename, lists:concat(["[", werkzeug:timeMilliSecond(), "] ", ClientNr, ": ", Message]))
 .
