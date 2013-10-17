@@ -40,16 +40,16 @@ sendMessages(ClientID, ServerPID, Sendinterval, NumberOfSendMsg, OwnMessageNumbe
     endOfLifetime -> exitClient(ClientID);
 
     {nid, Number} ->
-%% After sending 5 Messages, forget to send a Message and switch to Readermode
+      %% After sending 5 Messages, forget to send a Message and switch to Readermode
       case NumberOfSendMsg of
         5 ->
-          logMessage(ClientID, lists:concat(["forgot to send MessageNr: ",Number," at",werkzeug:timeMilliSecond() ," ~n"])),
+          logMessage(ClientID, lists:concat(["forgot to send MessageNr: ", Number, " at", werkzeug:timeMilliSecond(), " ~n"])),
           getMessages(ClientID, ServerPID, OwnMessageNumbers, Sendinterval);
         _ ->
-%% lists:concat([Number, ".Message: ", getHost()," ", ClientNr," G2/T13", " Send: ", werkzeug:timeMilliSecond()])
+          %% lists:concat([Number, ".Message: ", getHost()," ", ClientNr," G2/T13", " Send: ", werkzeug:timeMilliSecond()])
           Message = lists:concat([Number, ".-Message: C out - ", werkzeug:timeMilliSecond(), "(", getHostname(), ") ;"]),
           ServerPID ! {dropmessage, {Message, Number}},
-          logMessage(ClientID, lists:concat(["send Message: ", Message,"~n"])),
+          logMessage(ClientID, lists:concat(["send Message: ", Message, "~n"])),
           timer:sleep(Sendinterval),
           sendMessages(ClientID, ServerPID, Sendinterval, NumberOfSendMsg + 1, lists:append(OwnMessageNumbers, [Number]))
       end;
@@ -69,8 +69,8 @@ getMessages(ClientID, ServerPID, OwnMessageNumbers, SendInterval) ->
     {reply, NNr, Message, Terminated} ->
 %% checking if received Message is from our own editor
       case lists:any(fun(Elem) -> Elem == NNr end, OwnMessageNumbers) of
-        true -> logMessage(ClientID, lists:concat(["Received a Message of my own: ",Message , "at ",werkzeug:timeMilliSecond(),"~n"]));
-        false -> logMessage(ClientID, lists:concat(["Received a Message: ",Message , "at ",werkzeug:timeMilliSecond(),"~n"]))
+        true -> logMessage(ClientID, lists:concat(["Received a Message of my own: ", Message, "at ", werkzeug:timeMilliSecond(), "~n"]));
+        false -> logMessage(ClientID, lists:concat(["Received a Message: ", Message, "at ", werkzeug:timeMilliSecond(), "~n"]))
       end,
       case Terminated of
 %% switching back to editormode if Terminated is true with a new calculated SendInterval
