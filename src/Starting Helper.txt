@@ -1,0 +1,5 @@
+cd("Z:/workspace/IntelliJ/VSP_Nachrichtendienst/src").
+{PID, Node} = server:start().
+client:startClients(Node).
+
+c(serverQueueMgmt).

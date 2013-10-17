@@ -166,7 +166,7 @@ clientMgmt_newMessageNumberOfClient(ClientPID, lastMessagenumberSend, HBQ, DLQ, 
       NewClientList = DelClientList ++ {ClientPID, lastMessagenumberSend, NewTimer},
       queueMgmt(DLQLimit, HBQ, DLQ, NewClientList, ClientLifetime);
 
-    _ ->
+    true ->
       {ok, Timer} = timer:send_after(ClientLifetime, {endOfClientLifeTime, ClientPID}),
       NewClientList = ClientList ++ {ClientPID, lastMessagenumberSend, Timer},
       queueMgmt(DLQLimit, HBQ, DLQ, NewClientList, ClientLifetime)
