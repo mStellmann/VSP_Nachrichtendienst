@@ -74,7 +74,10 @@ getMessages(ClientID, ServerPID, OwnMessageNumbers, SendInterval) ->
       end,
       case Terminated of
 %% switching back to editormode if Terminated is true with a new calculated SendInterval
-        true -> sendMessages(ClientID, ServerPID, calculateNewWaitingtime(SendInterval), 0, OwnMessageNumbers);
+        true ->
+          NewWaitingtime = calculateNewWaitingtime(SendInterval),
+          io:format("---- NEW WAITINGTIME: ~p~n", [NewWaitingtime]),
+          sendMessages(ClientID, ServerPID, NewWaitingtime, 0, OwnMessageNumbers);
 %% more messages to receive
         false -> getMessages(ClientID, ServerPID, OwnMessageNumbers, SendInterval)
       end;
@@ -93,30 +96,37 @@ exitClient(ClientID) ->
 
 %% Generates a new Timeinterval
 %% generated interval is always 50 percent '<' or '>' as the 'CurrentInterval' with a minimum of +-1
+%% min: 2
 calculateNewWaitingtime(CurrentInterval) ->
-  UpOrDown = random:uniform(2),
-  if CurrentInterval >= 2 ->
-    if UpOrDown == 1 -> CurrentInterval * 0.5;
-      UpOrDown == 2 -> CurrentInterval * 1.5
-    end;
-    CurrentInterval < 2 ->
-      if CurrentInterval == 1 -> 1 + random:uniform(7);
-        UpOrDown == 1 -> 1;
-        UpOrDown == 2 -> checkNewTimeInterval(CurrentInterval, CurrentInterval * 1.5)
+  case CurrentInterval =< 3 of
+    true ->
+      NewInterval = CurrentInterval * 1.5,
+      erlang:round(NewInterval);
+    false ->
+      UpOrDown = random:uniform(2),
+      case UpOrDown == 1 of
+      %% 1 == Down
+        true ->
+          NewInterval = CurrentInterval * 0.5,
+          erlang:round(NewInterval);
+      %% 2 == UP
+        false ->
+          NewInterval = CurrentInterval * 1.5,
+          erlang:round(NewInterval)
       end
   end
 .
 
-%% subFunction for calculateNewTimeInterval/1
-%% provides the +-1 - Rule
-checkNewTimeInterval(CurrentInterval, NewInterval) ->
-  if abs(CurrentInterval - NewInterval) >= 1 -> NewInterval;
-    abs(CurrentInterval - NewInterval) < 1 ->
-      if NewInterval > CurrentInterval -> NewInterval + (1 - abs(CurrentInterval - NewInterval));
-        NewInterval < CurrentInterval -> NewInterval - (1 - abs(CurrentInterval - NewInterval))
-      end
-  end
-.
+%% %% subFunction for calculateNewTimeInterval/1
+%% %% provides the +-1 - Rule
+%% checkNewTimeInterval(CurrentInterval, NewInterval) ->
+%%   if abs(CurrentInterval - NewInterval) >= 1 -> NewInterval;
+%%     abs(CurrentInterval - NewInterval) < 1 ->
+%%       if NewInterval > CurrentInterval -> NewInterval + (1 - abs(CurrentInterval - NewInterval));
+%%         NewInterval < CurrentInterval -> NewInterval - (1 - abs(CurrentInterval - NewInterval))
+%%       end
+%%   end
+%% .
 
 getHostname() ->
   {ok, Hostname} = inet:gethostname(),

@@ -3,3 +3,5 @@ cd("Z:/workspace/IntelliJ/VSP_Nachrichtendienst/src").
 client:startClients(Node).
 
 c(serverQueueMgmt).
+
+(w)erl -sname server/client -setcookie keks

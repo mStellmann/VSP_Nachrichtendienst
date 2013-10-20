@@ -12,8 +12,7 @@ start(DLQLimit, ClientLifetime) ->
 
 
 %% TODO -> Comments, Comments, Comments, ..... , Comments
-%% TODO -> Fehlernachricht - DummyMessage wird an die Clients versendet..
-%% TODO -> Wahrscheinlich wird die LMNS nicht richtig ausgelesen bzw. berechnet.. <- sehr wahrscheinlich falsche berechnung der LMNS
+%% TODO -> Logging hard werkzeug logging()
 
 %% receiving loop for the QueueMgmt
 queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime) ->
@@ -41,7 +40,6 @@ dropMessageInHBQ(MessageTuple, HBQ, DLQ, ClientList, ClientLifetime, DLQLimit) -
   NewHBQ = werkzeug:pushSL(HBQ, {MsgNr, lists:concat([Message, " S in HBQ at ", werkzeug:timeMilliSecond()])}),
   case werkzeug:lengthSL(NewHBQ) > DLQLimit / 2 of
     true ->
-      logToFile(lists:concat([werkzeug:timeMilliSecond(), ":  ", " pushed in DLQ"])),
       pushMessagesInDLQ(NewHBQ, DLQ, ClientList, ClientLifetime, DLQLimit, true);
     _ -> queueMgmt(DLQLimit, NewHBQ, DLQ, ClientList, ClientLifetime)
   end
@@ -50,7 +48,6 @@ dropMessageInHBQ(MessageTuple, HBQ, DLQ, ClientList, ClientLifetime, DLQLimit) -
 pushMessagesInDLQ(HBQ, DLQ, ClientList, ClientLifetime, DLQLimit, NewPushingFlac) ->
   case werkzeug:notemptySL(HBQ) of
     false ->
-      logToFile(lists:concat([werkzeug:timeMilliSecond(), ":  ", " HBQ is  empty"])),
       queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime);
     _ -> doNothing
   end,
@@ -62,22 +59,21 @@ pushMessagesInDLQ(HBQ, DLQ, ClientList, ClientLifetime, DLQLimit, NewPushingFlac
   MaxNrDLQplusOne = MaxNrDLQ + 1,
   MinNrHBQminusOne = MinNrHBQ - 1,
 
-  io:format(" Flac: ~p MaxNrDLQ: ~p MinNrHBQ: ~p~n", [DLQisNotEmptyFlac, MaxNrDLQ, MinNrHBQ]),
   case MaxNrDLQplusTwo =< MinNrHBQ of
     true when NewPushingFlac andalso DLQisNotEmptyFlac ->
       logToFile(lists:concat([werkzeug:timeMilliSecond(), ":  ", " FailMessage created"])),
-      failMessage = lists:concat(["*** missing messages from ", MaxNrDLQplusOne, " to ", MinNrHBQminusOne, " at ", werkzeug:timeMilliSecond(), " ***"]),
+      FailMessage = lists:concat(["*** missing messages from ", MaxNrDLQplusOne, " to ", MinNrHBQminusOne, " at ", werkzeug:timeMilliSecond(), " ***"]),
       case isDLQFull(DLQ, DLQLimit) of
         true ->
           case isDLQPushPossible(DLQ, ClientList) of
             false -> queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime);
             _ ->
               NewDLQ = werkzeug:popSL(DLQ),
-              NewPushedDLQ = werkzeug:pushSL(NewDLQ, {MinNrHBQminusOne, failMessage}),
+              NewPushedDLQ = werkzeug:pushSL(NewDLQ, {MinNrHBQminusOne, FailMessage}),
               pushMessagesInDLQ(HBQ, NewPushedDLQ, ClientList, ClientLifetime, DLQLimit, false)
           end;
         _ ->
-          NewDLQ = werkzeug:pushSL(DLQ, {MinNrHBQminusOne, failMessage}),
+          NewDLQ = werkzeug:pushSL(DLQ, {MinNrHBQminusOne, FailMessage}),
           pushMessagesInDLQ(HBQ, NewDLQ, ClientList, ClientLifetime, DLQLimit, false)
       end;
 
@@ -112,9 +108,9 @@ isDLQPushPossible(DLQ, ClientList) ->
   case List == [] of
     true -> true;
     _ -> ListMinCL = lists:min(List),
-      ListMinCLplusOne = ListMinCL + 1,
+%%       ListMinCLplusOne = ListMinCL + 1,
       MinDLQ = werkzeug:minNrSL(DLQ),
-      case ListMinCLplusOne == MinDLQ of
+      case ListMinCL == MinDLQ of
         true -> false;
         _ -> true
       end
@@ -131,21 +127,28 @@ isDLQFull(DLQ, DLQLimit) ->
 
 %% sending the next message to the client
 sendMessageToClient(ClientPID, LastSendMessagenumber, DLQ) ->
-  case werkzeug:findneSL(DLQ, LastSendMessagenumber) of
+  Result = werkzeug:findneSL(DLQ, LastSendMessagenumber),
+  case Result of
 %% no (new) message in DLQ to deliver to the client
-    {-1, nok} ->
+    {-1, nok} when LastSendMessagenumber >= 2 ->
       ClientPID ! {reply, LastSendMessagenumber, lists:concat(["dummy message - no new messages in DLQ until yet (", werkzeug:timeMilliSecond(), ")"]), true},
       LastSendMessagenumber;
+
+    {-1, nok} when LastSendMessagenumber =< 1 ->
+      MinDLQ = werkzeug:minNrSL(DLQ),
+      {SNr, Elem} = werkzeug:findSL(DLQ, MinDLQ),
+      ClientPID ! {reply, SNr, lists:concat([Elem, " S Out: ", werkzeug:timeMilliSecond()]), false},
+      SNr + 1;
 
 %% next message found, sending to client
     {SNr, Elem} ->
       case SNr == werkzeug:maxNrSL(DLQ) of
         true ->
           ClientPID ! {reply, SNr, lists:concat([Elem, " S Out: ", werkzeug:timeMilliSecond()]), true},
-          SNr;
+          SNr + 1;
         _ ->
           ClientPID ! {reply, SNr, lists:concat([Elem, " S Out: ", werkzeug:timeMilliSecond()]), false},
-          SNr
+          SNr + 1
       end
   end
 .
