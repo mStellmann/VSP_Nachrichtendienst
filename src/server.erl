@@ -33,16 +33,20 @@ dispatcher(MessageCounter, ServerLifetime, ServerLifetimeTimer, DLQLimit, QueueM
       messagenumberMgmt(ClientPID, MessageCounter, ServerLifetime, ServerLifetimeTimer, DLQLimit, QueueMgmtPID);
 
   %% request of clients: dropping a new message
-    {dropmessages, {Message, Number}} ->
+    {dropmessage, {Message, Number}} ->
+      io:format("Message: ~p ---- Number: ~p~n", [Message, Number]),
+
       werkzeug:reset_timer(ServerLifetimeTimer, ServerLifetime, endOfLife),
-      QueueMgmtPID ! {dropmessages, {Message, Number}};
+      QueueMgmtPID ! {dropmessage, {Message, Number}},
+      dispatcher(MessageCounter, ServerLifetime, ServerLifetimeTimer, DLQLimit, QueueMgmtPID);
 
   %% request of clients: getting messages
     {getmessages, ClientPID} ->
       werkzeug:reset_timer(ServerLifetimeTimer, ServerLifetime, endOfLife),
-      QueueMgmtPID ! {getmessages, ClientPID};
+      QueueMgmtPID ! {getmessages, ClientPID},
+      dispatcher(MessageCounter, ServerLifetime, ServerLifetimeTimer, DLQLimit, QueueMgmtPID);
 
-  %% something weird received
+  %% something unknown received
     Any ->
       logToFile(lists:concat(["received anything not understandable: ", Any, "~n"])),
       dispatcher(MessageCounter, ServerLifetime, ServerLifetimeTimer, DLQLimit, QueueMgmtPID)
