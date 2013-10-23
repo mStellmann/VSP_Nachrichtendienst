@@ -202,6 +202,6 @@ getHostname() ->
 .
 
 logToFile(Message) ->
-  Filename = lists:concat(["ServerQueueMgmt: ", "@", getHostname(), ".log"]),
+  Filename = lists:concat(["ServerQueueMgmt_", "@", getHostname(), ".log"]),
   werkzeug:logging(Filename, lists:concat(["[", werkzeug:timeMilliSecond(), "] ", ": ", Message, "\n"]))
 .

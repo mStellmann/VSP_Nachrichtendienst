@@ -74,6 +74,6 @@ getHostname() ->
 .
 
 logToFile(Message) ->
-  Filename = lists:concat(["Server: ", "@", getHostname(), ".log"]),
+  Filename = lists:concat(["Server_", "@", getHostname(), ".log"]),
   werkzeug:logging(Filename, lists:concat(["[", werkzeug:timeMilliSecond(), "] ", ": ", Message, "\n"]))
 .
