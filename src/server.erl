@@ -53,11 +53,13 @@ dispatcher(MessageCounter, ServerLifetime, ServerLifetimeTimer, DLQLimit, QueueM
   end
 .
 
+%% sends the next msg number to the editor client
 messagenumberMgmt(ClientPID, MessageCounter, ServerLifetime, ServerLifetimeTimer, DLQLimit, QueueMgmtPID) ->
   ClientPID ! {nid, MessageCounter},
   dispatcher(MessageCounter + 1, ServerLifetime, ServerLifetimeTimer, DLQLimit, QueueMgmtPID)
 .
 
+%% terminates the server and sends the queueMngt process the endOfLife msg
 exitServer(QueueMgmtPID) ->
   io:format("INFO: Server with PID: ~p ended at ~p~n", [self(), werkzeug:timeMilliSecond()]),
   QueueMgmtPID ! endOfLife,
@@ -73,5 +75,5 @@ getHostname() ->
 
 logToFile(Message) ->
   Filename = lists:concat(["Server: ", "@", getHostname(), ".log"]),
-  werkzeug:logging(Filename, lists:concat(["[", werkzeug:timeMilliSecond(), "] ", ": ", Message]))
+  werkzeug:logging(Filename, lists:concat(["[", werkzeug:timeMilliSecond(), "] ", ": ", Message, "\n"]))
 .

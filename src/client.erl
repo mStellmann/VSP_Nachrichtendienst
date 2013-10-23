@@ -76,7 +76,6 @@ getMessages(ClientID, ServerPID, OwnMessageNumbers, SendInterval) ->
 %% switching back to editormode if Terminated is true with a new calculated SendInterval
         true ->
           NewWaitingtime = calculateNewWaitingtime(SendInterval),
-          io:format("---- NEW WAITINGTIME: ~p~n", [NewWaitingtime]),
           sendMessages(ClientID, ServerPID, NewWaitingtime, 0, OwnMessageNumbers);
 %% more messages to receive
         false -> getMessages(ClientID, ServerPID, OwnMessageNumbers, SendInterval)
@@ -97,6 +96,7 @@ exitClient(ClientID) ->
 %% Generates a new Timeinterval
 %% generated interval is always 50 percent '<' or '>' as the 'CurrentInterval' with a minimum of +-1
 %% min: 2
+%% returns the waiting time to send a message
 calculateNewWaitingtime(CurrentInterval) ->
   case CurrentInterval =< 3 of
     true ->
@@ -117,17 +117,6 @@ calculateNewWaitingtime(CurrentInterval) ->
   end
 .
 
-%% %% subFunction for calculateNewTimeInterval/1
-%% %% provides the +-1 - Rule
-%% checkNewTimeInterval(CurrentInterval, NewInterval) ->
-%%   if abs(CurrentInterval - NewInterval) >= 1 -> NewInterval;
-%%     abs(CurrentInterval - NewInterval) < 1 ->
-%%       if NewInterval > CurrentInterval -> NewInterval + (1 - abs(CurrentInterval - NewInterval));
-%%         NewInterval < CurrentInterval -> NewInterval - (1 - abs(CurrentInterval - NewInterval))
-%%       end
-%%   end
-%% .
-
 getHostname() ->
   {ok, Hostname} = inet:gethostname(),
   Hostname
@@ -136,5 +125,5 @@ getHostname() ->
 %% simplifies the Logging
 logMessage(ClientNr, Message) ->
   Filename = lists:concat(["client_", ClientNr, "@", getHostname(), ".log"]),
-  werkzeug:logging(Filename, lists:concat(["[", werkzeug:timeMilliSecond(), "] ", ClientNr, ": ", Message]))
+  werkzeug:logging(Filename, lists:concat(["[", werkzeug:timeMilliSecond(), "] ", ClientNr, ": ", Message, "\n"]))
 .

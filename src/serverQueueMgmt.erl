@@ -10,34 +10,35 @@ start(DLQLimit, ClientLifetime) ->
   erlang:spawn(fun() -> queueMgmt(DLQLimit, [], [], [], ClientLifetime) end)
 .
 
-
-%% TODO -> Comments, Comments, Comments, ..... , Comments
-%% TODO -> Logging hard werkzeug logging()
-
 %% receiving loop for the QueueMgmt
 queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime) ->
   receive
     endOfLife -> exitQueueMgmt();
 
-    {endOfClientLifeTime, ClientPID} -> clientMgmt_deleteClient(ClientPID, HBQ, DLQ, ClientList, ClientLifetime, DLQLimit);
+    {endOfClientLifeTime, ClientPID} ->
+      logToFile(werkzeug:list2String(["endOfClientLifeTime with CliendPID: ", ClientPID])),
+      clientMgmt_deleteClient(ClientPID, HBQ, DLQ, ClientList, ClientLifetime, DLQLimit);
 
     {dropmessage, {Message, Number}} -> dropMessageInHBQ({Number, Message}, HBQ, DLQ, ClientList, ClientLifetime, DLQLimit);
 
     {getmessages, ClientPID} ->
       LastSendMessagenumber = clientMgmt_lastMessageNumberSend(ClientPID, ClientList),
       NewSendMessagenumber = sendMessageToClient(ClientPID, LastSendMessagenumber, DLQ),
+      logToFile(werkzeug:list2String(["getmessages with CliendPID: ", ClientPID, "LastMessageNumber: ", LastSendMessagenumber, "NewMessageNumber: ", NewSendMessagenumber])),
       clientMgmt_newMessageNumberOfClient(ClientPID, NewSendMessagenumber, HBQ, DLQ, ClientList, ClientLifetime, DLQLimit);
 
     Any ->
-      logToFile(lists:concat(["received anything not understandable: ", Any, "~n"])),
+      logToFile(lists:concat(["received anything: ", Any, "~n"])),
       queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime)
   end
 .
 
-%% starting the master algo
+%% function to drop the messages into the HBQ
 dropMessageInHBQ(MessageTuple, HBQ, DLQ, ClientList, ClientLifetime, DLQLimit) ->
   {MsgNr, Message} = MessageTuple,
-  NewHBQ = werkzeug:pushSL(HBQ, {MsgNr, lists:concat([Message, " S in HBQ at ", werkzeug:timeMilliSecond()])}),
+  NewMessage = lists:concat([Message, " S in HBQ at ", werkzeug:timeMilliSecond()]),
+  logToFile(werkzeug:list2String(["Message stored in HBQ: ", NewMessage])),
+  NewHBQ = werkzeug:pushSL(HBQ, {MsgNr, NewMessage}),
   case werkzeug:lengthSL(NewHBQ) > DLQLimit / 2 of
     true ->
       pushMessagesInDLQ(NewHBQ, DLQ, ClientList, ClientLifetime, DLQLimit, true);
@@ -45,13 +46,14 @@ dropMessageInHBQ(MessageTuple, HBQ, DLQ, ClientList, ClientLifetime, DLQLimit) -
   end
 .
 
+%% function to push the messages from the HBQ into the DLQ
 pushMessagesInDLQ(HBQ, DLQ, ClientList, ClientLifetime, DLQLimit, NewPushingFlac) ->
   case werkzeug:notemptySL(HBQ) of
     false ->
       queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime);
     _ -> doNothing
   end,
-%% missing messages -> failuremessage will be created and pushed in DLQ
+
   DLQisNotEmptyFlac = werkzeug:notemptySL(DLQ),
   MaxNrDLQ = werkzeug:maxNrSL(DLQ),
   MinNrHBQ = werkzeug:minNrSL(HBQ),
@@ -59,19 +61,16 @@ pushMessagesInDLQ(HBQ, DLQ, ClientList, ClientLifetime, DLQLimit, NewPushingFlac
   MaxNrDLQplusOne = MaxNrDLQ + 1,
   MinNrHBQminusOne = MinNrHBQ - 1,
 
+%% missing messages -> failuremessage will be created and pushed in DLQ
   case MaxNrDLQplusTwo =< MinNrHBQ of
     true when NewPushingFlac andalso DLQisNotEmptyFlac ->
-      logToFile(lists:concat([werkzeug:timeMilliSecond(), ":  ", " FailMessage created"])),
       FailMessage = lists:concat(["*** missing messages from ", MaxNrDLQplusOne, " to ", MinNrHBQminusOne, " at ", werkzeug:timeMilliSecond(), " ***"]),
+      logToFile(lists:concat([werkzeug:timeMilliSecond(), ":  ", " FailMessage created - ", FailMessage])),
       case isDLQFull(DLQ, DLQLimit) of
         true ->
-          case isDLQPushPossible(DLQ, ClientList) of
-            false -> queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime);
-            _ ->
-              NewDLQ = werkzeug:popSL(DLQ),
-              NewPushedDLQ = werkzeug:pushSL(NewDLQ, {MinNrHBQminusOne, FailMessage}),
-              pushMessagesInDLQ(HBQ, NewPushedDLQ, ClientList, ClientLifetime, DLQLimit, false)
-          end;
+          NewDLQ = werkzeug:popSL(DLQ),
+          NewPushedDLQ = werkzeug:pushSL(NewDLQ, {MinNrHBQminusOne, FailMessage}),
+          pushMessagesInDLQ(HBQ, NewPushedDLQ, ClientList, ClientLifetime, DLQLimit, false);
         _ ->
           NewDLQ = werkzeug:pushSL(DLQ, {MinNrHBQminusOne, FailMessage}),
           pushMessagesInDLQ(HBQ, NewDLQ, ClientList, ClientLifetime, DLQLimit, false)
@@ -85,38 +84,25 @@ pushMessagesInDLQ(HBQ, DLQ, ClientList, ClientLifetime, DLQLimit, NewPushingFlac
     _ ->
       case isDLQFull(DLQ, DLQLimit) of
         true ->
-          case isDLQPushPossible(DLQ, ClientList) of
-            false -> queueMgmt(DLQLimit, HBQ, DLQ, ClientList, ClientLifetime);
-            _ ->
-              NewDLQ = werkzeug:popSL(DLQ),
-              {MsgNumber, Message} = werkzeug:findSL(HBQ, werkzeug:minNrSL(HBQ)),
-              NewHBQ = werkzeug:popSL(HBQ),
-              NewPushedDLQ = werkzeug:pushSL(NewDLQ, {MsgNumber, lists:concat([Message, " S in DLQ at ", werkzeug:timeMilliSecond()])}),
-              pushMessagesInDLQ(NewHBQ, NewPushedDLQ, ClientList, ClientLifetime, DLQLimit, false)
-          end;
+          NewDLQ = werkzeug:popSL(DLQ),
+          {MsgNumber, Message} = werkzeug:findSL(HBQ, werkzeug:minNrSL(HBQ)),
+          NewHBQ = werkzeug:popSL(HBQ),
+          NewMessage = lists:concat([Message, " S in DLQ at ", werkzeug:timeMilliSecond()]),
+          logToFile(werkzeug:list2String(["Message stored in DLQ: ", NewMessage])),
+          NewPushedDLQ = werkzeug:pushSL(NewDLQ, {MsgNumber, NewMessage}),
+          pushMessagesInDLQ(NewHBQ, NewPushedDLQ, ClientList, ClientLifetime, DLQLimit, false);
         _ ->
           {MsgNumber, Message} = werkzeug:findSL(HBQ, werkzeug:minNrSL(HBQ)),
           NewHBQ = werkzeug:popSL(HBQ),
-          NewDLQ = werkzeug:pushSL(DLQ, {MsgNumber, lists:concat([Message, " S in DLQ at ", werkzeug:timeMilliSecond()])}),
+          NewMessage = lists:concat([Message, " S in DLQ at ", werkzeug:timeMilliSecond()]),
+          logToFile(werkzeug:list2String(["Message stored in DLQ: ", NewMessage])),
+          NewDLQ = werkzeug:pushSL(DLQ, {MsgNumber, NewMessage}),
           pushMessagesInDLQ(NewHBQ, NewDLQ, ClientList, ClientLifetime, DLQLimit, false)
       end
   end
 .
 
-isDLQPushPossible(DLQ, ClientList) ->
-  List = [MessageNumber || {_, MessageNumber, _} <- ClientList],
-  case List == [] of
-    true -> true;
-    _ -> ListMinCL = lists:min(List),
-%%       ListMinCLplusOne = ListMinCL + 1,
-      MinDLQ = werkzeug:minNrSL(DLQ),
-      case ListMinCL == MinDLQ of
-        true -> false;
-        _ -> true
-      end
-  end
-.
-
+%% checks if the DLQ is full
 isDLQFull(DLQ, DLQLimit) ->
   case werkzeug:lengthSL(DLQ) == DLQLimit of
     true -> true;
@@ -137,17 +123,23 @@ sendMessageToClient(ClientPID, LastSendMessagenumber, DLQ) ->
     {-1, nok} when LastSendMessagenumber =< 1 ->
       MinDLQ = werkzeug:minNrSL(DLQ),
       {SNr, Elem} = werkzeug:findSL(DLQ, MinDLQ),
-      ClientPID ! {reply, SNr, lists:concat([Elem, " S Out: ", werkzeug:timeMilliSecond()]), false},
+      NewMessage = lists:concat([Elem, " S Out: ", werkzeug:timeMilliSecond()]),
+      logToFile(werkzeug:list2String(["Message send to client: ", NewMessage])),
+      ClientPID ! {reply, SNr, NewMessage, false},
       SNr + 1;
 
 %% next message found, sending to client
     {SNr, Elem} ->
       case SNr == werkzeug:maxNrSL(DLQ) of
         true ->
-          ClientPID ! {reply, SNr, lists:concat([Elem, " S Out: ", werkzeug:timeMilliSecond()]), true},
+          NewMessage = lists:concat([Elem, " S Out: ", werkzeug:timeMilliSecond()]),
+          logToFile(werkzeug:list2String(["Message send to client: ", NewMessage])),
+          ClientPID ! {reply, SNr, NewMessage, true},
           SNr + 1;
         _ ->
-          ClientPID ! {reply, SNr, lists:concat([Elem, " S Out: ", werkzeug:timeMilliSecond()]), false},
+          NewMessage = lists:concat([Elem, " S Out: ", werkzeug:timeMilliSecond()]),
+          logToFile(werkzeug:list2String(["Message send to client: ", NewMessage])),
+          ClientPID ! {reply, SNr, NewMessage, false},
           SNr + 1
       end
   end
@@ -211,5 +203,5 @@ getHostname() ->
 
 logToFile(Message) ->
   Filename = lists:concat(["ServerQueueMgmt: ", "@", getHostname(), ".log"]),
-  werkzeug:logging(Filename, lists:concat(["[", werkzeug:timeMilliSecond(), "] ", ": ", Message]))
+  werkzeug:logging(Filename, lists:concat(["[", werkzeug:timeMilliSecond(), "] ", ": ", Message, "\n"]))
 .
